@@ -1,2 +1,7 @@
-# instagram-giveaways-api
-Go API for managing Instagram giveaways — automatic participant capture (comments and story mentions via the Graph API) and reproducible winner draws, no manual data collection.
+# API de Sorteos de Instagram
+
+API en Go para gestionar sorteos de Instagram (campañas, captura automática de participantes, sorteo de ganadores) sin recopilar datos a mano.
+
+- Diseño y arquitectura: ver [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- Contexto para Claude Code: ver [`CLAUDE.md`](./CLAUDE.md)
+- Casos de uso: ver [`docs/USE_CASES.md`](./docs/USE_CASES.md)
