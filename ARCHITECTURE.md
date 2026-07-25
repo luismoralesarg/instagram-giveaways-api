@@ -47,6 +47,15 @@ Un participante válido según las reglas automáticas puede igual necesitar exc
 
 Cada `Draw` persiste la semilla aleatoria (`random_seed`) usada para seleccionar ganadores. Dado el mismo conjunto de participantes elegibles + la misma semilla, el resultado debe ser reproducible — esto permite demostrar que el sorteo fue al azar ante un reclamo.
 
+### 2.5 Autenticación (User)
+
+Existe una entidad `User` (id, username, password_hash, created_at) usada exclusivamente para autenticar al administrador contra la API — no participa en las reglas de negocio de sorteos.
+
+- El administrador se autentica con usuario y contraseña (`POST /auth/login`) y recibe un JWT (Bearer token).
+- Todos los endpoints de administración requieren `Authorization: Bearer <token>`, **excepto** `/auth/login` y `/webhooks/instagram` (este último se autentica con la firma de Meta vía `INSTAGRAM_APP_SECRET`, no con JWT).
+- No hay endpoint de auto-registro: los usuarios se dan de alta manualmente (seed/migración), coherente con el alcance de una única cuenta/administrador.
+- Las contraseñas se almacenan hasheadas (bcrypt) — nunca en texto plano ni en logs.
+
 ## 3. Límites de la integración con Instagram
 
 - **Comentarios en posts**: se obtienen vía Graph API (`GET /{media-id}/comments`), sincronización activa (polling o disparada manualmente), no hay webhook nativo por comentario nuevo salvo suscripción a `comments` en el webhook de la app.
@@ -67,11 +76,14 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
     campaign.go          → entidad Campaign + reglas de transición de estado
     participant.go        → entidad Participant
     draw.go               → entidades Draw y Winner + lógica de selección random
+    user.go                → entidad User (autenticación)
     ports.go               → interfaces (CampaignRepository, ParticipantRepository,
-                              DrawRepository, InstagramClient, RandomGenerator)
+                              DrawRepository, UserRepository, InstagramClient,
+                              RandomGenerator, PasswordHasher, TokenIssuer)
 
   /application
     /usecase
+      login.go                  → autentica usuario/contraseña y emite un JWT
       create_campaign.go
       close_campaign.go
       sync_comments.go          → trae comentarios del post vía Graph API
@@ -81,6 +93,9 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       list_campaign_results.go
 
   /infrastructure
+    /auth
+      jwt.go               → firma y valida JWT (implementa TokenIssuer)
+      password_hasher.go   → hashing de contraseñas con bcrypt
     /instagram
       graph_client.go     → implementa InstagramClient contra graph.facebook.com
       webhook_handler.go  → recibe y valida los webhooks de Instagram
@@ -89,9 +104,12 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       campaign_repo.go
       participant_repo.go
       draw_repo.go
+      user_repo.go
       migrations/
     /http/fiber
       router.go
+      auth_handlers.go
+      auth_middleware.go  → valida el Bearer token en las rutas protegidas
       campaign_handlers.go
       draw_handlers.go
       webhook_handlers.go
@@ -104,21 +122,23 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
 
 ## 5. Endpoints principales (borrador)
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| POST | `/campaigns` | Crea una campaña en estado `draft`, con sus reglas |
-| POST | `/campaigns/:id/activate` | Pasa a `activa` |
-| POST | `/campaigns/:id/close` | Pasa a `cerrada` |
-| POST | `/campaigns/:id/sync-comments` | Sincroniza comentarios del post (Graph API) |
-| POST | `/webhooks/instagram` | Recibe eventos de Instagram (story mentions, etc.) |
-| PATCH | `/campaigns/:id/participants/:pid/exclude` | Exclusión manual |
-| POST | `/campaigns/:id/draws` | Ejecuta un sorteo (`winners_count: 1\|2\|3`) |
-| GET | `/campaigns/:id/participants` | Lista participantes (con estado de exclusión) |
-| GET | `/campaigns/:id/draws/:draw_id` | Resultado de un sorteo (ganadores + semilla) |
+| Método | Ruta | Descripción | Auth |
+|---|---|---|---|
+| POST | `/auth/login` | Autentica usuario/contraseña, devuelve un JWT | pública |
+| POST | `/campaigns` | Crea una campaña en estado `draft`, con sus reglas | JWT |
+| POST | `/campaigns/:id/activate` | Pasa a `activa` | JWT |
+| POST | `/campaigns/:id/close` | Pasa a `cerrada` | JWT |
+| POST | `/campaigns/:id/sync-comments` | Sincroniza comentarios del post (Graph API) | JWT |
+| POST | `/webhooks/instagram` | Recibe eventos de Instagram (story mentions, etc.) | firma Meta |
+| PATCH | `/campaigns/:id/participants/:pid/exclude` | Exclusión manual | JWT |
+| POST | `/campaigns/:id/draws` | Ejecuta un sorteo (`winners_count: 1\|2\|3`) | JWT |
+| GET | `/campaigns/:id/participants` | Lista participantes (con estado de exclusión) | JWT |
+| GET | `/campaigns/:id/draws/:draw_id` | Resultado de un sorteo (ganadores + semilla) | JWT |
 
 ## 6. Stack
 
 - Go + Fiber
 - PostgreSQL
 - Instagram Graph API (Meta for Developers)
+- JWT (autenticación) + bcrypt (hashing de contraseñas)
 - Arquitectura hexagonal (puertos y adaptadores)

@@ -2,6 +2,29 @@
 
 ---
 
+## EPIC-00: Autenticación
+
+### UC-0.1: Iniciar Sesión
+
+- **Resumen:** El administrador se autentica con usuario y contraseña para obtener un token de acceso (JWT) que usará en las siguientes solicitudes a la API.
+- **Actor:** Administrador.
+- **Precondición:** Existe un usuario en la tabla `users` con las credenciales provistas (dado de alta manualmente, vía seed/migración).
+- **Disparador:** El administrador envía `POST /auth/login` con `username` y `password`.
+- **Flujo Principal:**
+  1. El sistema busca el usuario por `username` en la tabla `users`.
+  2. El sistema compara la contraseña provista contra el `password_hash` almacenado (bcrypt).
+  3. Si coincide, el sistema genera un JWT firmado con expiración y lo devuelve.
+- **Flujos Alternativos:**
+  - **FA-0.1.1 — Usuario inexistente o contraseña incorrecta:** el sistema devuelve error 401, sin distinguir cuál de las dos condiciones falló (para no revelar qué usernames existen).
+  - **FA-0.1.2 — Datos incompletos:** el sistema devuelve un error de validación sin consultar la base.
+- **Reglas de Negocio:**
+  - Las contraseñas nunca se almacenan ni se comparan en texto plano.
+  - No existe endpoint de auto-registro; los usuarios se crean manualmente fuera de la API.
+  - Todos los endpoints de administración (excepto `/auth/login` y `/webhooks/instagram`) requieren un JWT válido en el header `Authorization`.
+- **Postcondición:** El administrador obtiene un token válido para autenticar solicitudes subsiguientes.
+
+---
+
 ## EPIC-01: Gestión de Campañas
 
 ### UC-1.1: Crear Campaña
