@@ -7,13 +7,19 @@ import (
 )
 
 type Handlers struct {
-	Auth *AuthHandler
+	Auth     *AuthHandler
+	Campaign *CampaignHandler
 }
 
 // NewRouter arma el árbol de rutas. Todas las rutas de administración
 // requieren JWT (vía RequireAuth) salvo /auth/login y /webhooks/instagram
 // (este último se valida con la firma de Instagram). Las rutas de
-// campañas/participantes/sorteos se agregan en las próximas fases.
+// participantes/sorteos se agregan en las próximas fases.
 func NewRouter(app *fiber.App, h Handlers, tokens domain.TokenIssuer) {
 	app.Post("/auth/login", h.Auth.Login)
+
+	admin := app.Group("", RequireAuth(tokens))
+	admin.Post("/campaigns", h.Campaign.Create)
+	admin.Post("/campaigns/:id/activate", h.Campaign.Activate)
+	admin.Post("/campaigns/:id/close", h.Campaign.Close)
 }

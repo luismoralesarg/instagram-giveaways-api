@@ -77,6 +77,7 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
     participant.go        → entidad Participant
     draw.go               → entidades Draw y Winner + lógica de selección random
     user.go                → entidad User (autenticación)
+    errors.go              → errores de dominio (sentinel errors) de todas las entidades
     ports.go               → interfaces (CampaignRepository, ParticipantRepository,
                               DrawRepository, UserRepository, InstagramClient,
                               RandomGenerator, PasswordHasher, TokenIssuer)
@@ -85,6 +86,7 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
     /usecase
       login.go                  → autentica usuario/contraseña y emite un JWT
       create_campaign.go
+      activate_campaign.go
       close_campaign.go
       sync_comments.go          → trae comentarios del post vía Graph API
       handle_story_mention.go   → procesa el evento del webhook de historias
@@ -101,6 +103,8 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       webhook_handler.go  → recibe y valida los webhooks de Instagram
       token_refresher.go  → maneja el ciclo de vida del token
     /persistence/postgres
+      db.go                → pool de conexión (pgxpool)
+      errors.go             → helpers para traducir errores de pgx/postgres
       campaign_repo.go
       participant_repo.go
       draw_repo.go

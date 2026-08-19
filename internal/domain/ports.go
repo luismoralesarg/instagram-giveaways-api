@@ -21,3 +21,15 @@ type TokenIssuer interface {
 	Issue(userID string) (string, error)
 	Parse(token string) (userID string, err error)
 }
+
+// CampaignRepository persiste y consulta campañas.
+type CampaignRepository interface {
+	Create(ctx context.Context, c *Campaign) error
+	FindByID(ctx context.Context, id string) (*Campaign, error)
+
+	// ExistsOpenByMediaID implementa la regla de UC-1.1: un media_id no
+	// puede tener más de una campaña en draft o activa a la vez.
+	ExistsOpenByMediaID(ctx context.Context, mediaID string) (bool, error)
+
+	UpdateStatus(ctx context.Context, id string, status CampaignStatus) error
+}

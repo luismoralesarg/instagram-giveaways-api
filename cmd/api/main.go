@@ -27,14 +27,19 @@ func main() {
 	defer pool.Close()
 
 	userRepo := postgres.NewUserRepository(pool)
+	campaignRepo := postgres.NewCampaignRepository(pool)
 	hasher := auth.NewBcryptHasher()
 	tokens := auth.NewJWTIssuer(cfg.JWTSecret, cfg.JWTExpiration)
 
 	loginUC := usecase.NewLogin(userRepo, hasher, tokens)
+	createCampaignUC := usecase.NewCreateCampaign(campaignRepo)
+	activateCampaignUC := usecase.NewActivateCampaign(campaignRepo)
+	closeCampaignUC := usecase.NewCloseCampaign(campaignRepo)
 
 	app := fiber.New()
 	handlers := fiberhttp.Handlers{
-		Auth: fiberhttp.NewAuthHandler(loginUC),
+		Auth:     fiberhttp.NewAuthHandler(loginUC),
+		Campaign: fiberhttp.NewCampaignHandler(createCampaignUC, activateCampaignUC, closeCampaignUC),
 	}
 	fiberhttp.NewRouter(app, handlers, tokens)
 
