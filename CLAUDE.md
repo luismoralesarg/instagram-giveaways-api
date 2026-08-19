@@ -29,9 +29,16 @@ API en Go para gestionar sorteos de Instagram (campañas basadas en un post o hi
 go run ./cmd/api              # levantar la API localmente
 go test ./...                 # correr todos los tests
 go build ./...                # compilar
+
+# Migraciones (golang-migrate, instalar con:
+# go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1)
+migrate -path internal/infrastructure/persistence/postgres/migrations -database "$DATABASE_URL" up
+
+# Alta manual de un administrador (no hay endpoint de registro, ver "Autenticación" arriba)
+go run ./cmd/seedadmin -username=admin -password=algo-seguro
 ```
 
-(Ajustar esta sección a medida que se agreguen Makefile, migraciones, docker-compose, etc.)
+(Ajustar esta sección a medida que se agregue Makefile, docker-compose, etc.)
 
 ## Variables de entorno esperadas
 
