@@ -1,0 +1,130 @@
+name: Release y deploy a producción
+
+# Se dispara a mano desde la pestaña Actions (eligiendo la rama master), pidiendo el número de
+# versión del release como input. No corre en cada push: el deploy a producción queda como una
+# decisión explícita de quien lo dispara.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión del release (ej. v2026.08.19-1). Se usa como tag de git y nombre del GitHub Release.'
+        required: true
+        type: string
+
+# Evita que dos deploys se pisen si alguien dispara el workflow dos veces seguidas.
+concurrency:
+  group: release-deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Compila, vetea y corre los tests (incluidos los de integración de repositorios contra
+  # Postgres real) antes de crear el release o tocar el servidor de producción.
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: giveaways
+          POSTGRES_PASSWORD: giveaways
+          POSTGRES_DB: giveaways
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U giveaways -d giveaways"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://giveaways:giveaways@localhost:5432/giveaways?sslmode=disable
+    steps:
+      - name: Rechazar si no se dispara desde master
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/master" ]; then
+            echo "Este workflow solo debería dispararse desde master (ref actual: ${{ github.ref }})." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # Cuando exista un Dockerfile con una etapa de build de `migrate`, pinnear acá la misma
+      # versión para no probar contra un comportamiento distinto al que corre en producción.
+      - name: Instalar migrate CLI
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
+
+      # Ruta acorde a la estructura de carpetas de ARCHITECTURE.md §4
+      # (internal/infrastructure/persistence/postgres/migrations).
+      - name: Aplicar migraciones
+        run: migrate -path internal/infrastructure/persistence/postgres/migrations -database "$DATABASE_URL" up
+
+      - name: gofmt
+        run: |
+          diff="$(gofmt -l .)"
+          if [ -n "$diff" ]; then
+            echo "Archivos sin formatear (correr 'gofmt -w .'):" >&2
+            echo "$diff" >&2
+            exit 1
+          fi
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -race
+
+  # Crea el tag y el GitHub Release apuntando al commit que se está deployando.
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Crear GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+
+  # Deploy: SSH al servidor de producción y git pull + docker compose up --build -d. Requiere
+  # que el contenedor de la API aplique las migraciones solo al arrancar (entrypoint), no hace
+  # falta un paso aparte acá — ver TODO al pie de este archivo sobre lo que falta para que esto
+  # funcione de punta a punta.
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy por SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PROD_SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd "${{ secrets.PROD_APP_PATH }}"
+            git pull
+            docker compose -f docker-compose.prod.yml up --build -d
+
+# TODO — este workflow todavía no puede correr de punta a punta porque el repo, por ahora, es
+# solo documentación. Falta, en este orden:
+#   1. go.mod y código en cmd/api e internal/ (hoy no hay un solo archivo .go en el repo).
+#   2. internal/infrastructure/persistence/postgres/migrations/ con al menos una migración.
+#   3. Dockerfile de la API y docker-compose.prod.yml en el servidor de producción.
+#   4. Environment "production" en Settings → Environments, con los secrets:
+#      PROD_SSH_HOST, PROD_SSH_USER, PROD_SSH_PRIVATE_KEY, PROD_SSH_PORT (opcional),
+#      PROD_APP_PATH.
