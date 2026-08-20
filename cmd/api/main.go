@@ -12,6 +12,7 @@ import (
 	fiberhttp "github.com/luismoralesarg/instagram-giveaways-api/internal/infrastructure/http/fiber"
 	"github.com/luismoralesarg/instagram-giveaways-api/internal/infrastructure/instagram"
 	"github.com/luismoralesarg/instagram-giveaways-api/internal/infrastructure/persistence/postgres"
+	"github.com/luismoralesarg/instagram-giveaways-api/internal/infrastructure/random"
 )
 
 func main() {
@@ -30,9 +31,11 @@ func main() {
 	userRepo := postgres.NewUserRepository(pool)
 	campaignRepo := postgres.NewCampaignRepository(pool)
 	participantRepo := postgres.NewParticipantRepository(pool)
+	drawRepo := postgres.NewDrawRepository(pool)
 	hasher := auth.NewBcryptHasher()
 	tokens := auth.NewJWTIssuer(cfg.JWTSecret, cfg.JWTExpiration)
 	instagramClient := instagram.NewGraphClient(cfg.InstagramAccessToken)
+	randomGen := random.NewGenerator()
 
 	loginUC := usecase.NewLogin(userRepo, hasher, tokens)
 	createCampaignUC := usecase.NewCreateCampaign(campaignRepo)
@@ -42,6 +45,8 @@ func main() {
 	handleStoryMentionUC := usecase.NewHandleStoryMention(campaignRepo, participantRepo)
 	excludeParticipantUC := usecase.NewExcludeParticipant(participantRepo)
 	listParticipantsUC := usecase.NewListParticipants(campaignRepo, participantRepo)
+	runDrawUC := usecase.NewRunDraw(campaignRepo, participantRepo, drawRepo, randomGen)
+	getDrawResultUC := usecase.NewGetDrawResult(drawRepo)
 
 	app := fiber.New()
 	handlers := fiberhttp.Handlers{
@@ -49,6 +54,7 @@ func main() {
 		Campaign:    fiberhttp.NewCampaignHandler(createCampaignUC, activateCampaignUC, closeCampaignUC),
 		Participant: fiberhttp.NewParticipantHandler(syncCommentsUC, excludeParticipantUC, listParticipantsUC),
 		Webhook:     fiberhttp.NewWebhookHandler(handleStoryMentionUC, cfg.InstagramWebhookVerifyToken, cfg.InstagramAppSecret),
+		Draw:        fiberhttp.NewDrawHandler(runDrawUC, getDrawResultUC),
 	}
 	fiberhttp.NewRouter(app, handlers, tokens)
 

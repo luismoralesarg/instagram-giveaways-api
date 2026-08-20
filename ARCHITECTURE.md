@@ -49,6 +49,12 @@ Un participante válido según las reglas automáticas puede igual necesitar exc
 
 Cada `Draw` persiste la semilla aleatoria (`random_seed`) usada para seleccionar ganadores. Dado el mismo conjunto de participantes elegibles + la misma semilla, el resultado debe ser reproducible — esto permite demostrar que el sorteo fue al azar ante un reclamo.
 
+Implementación: `domain.SelectWinners` hace un partial Fisher-Yates sobre los elegibles (obtenidos siempre con `ORDER BY id`, para que el orden de entrada también sea determinístico) usando `math/rand` sembrado con `random_seed`. La semilla en sí se genera con `crypto/rand` (`infrastructure/random`, puerto `RandomGenerator`) — aleatoriedad criptográfica al generarla, determinismo matemático al reproducirla.
+
+**Precondición real de UC-3.1 (decisión confirmada):** un `Draw` se puede ejecutar con la campaña en `cerrada` **o** `sorteada` — nunca en `draft`/`activa`. Permitir `sorteada` es necesario para que el re-sorteo (FA-3.1.3) sea posible: una campaña sorteada no tiene forma de volver a `cerrada` con el modelo de estados actual.
+
+**Snapshot en Winner (decisión confirmada):** `Winner` guarda su propio `instagram_user_id`/`username`, copiados de `Participant` en el momento del sorteo — no hace join en vivo contra `participants`. Si el username cambiara después en Instagram, el resultado histórico anunciado no cambia.
+
 ### 2.5 Autenticación (User)
 
 Existe una entidad `User` (id, username, password_hash, created_at) usada exclusivamente para autenticar al administrador contra la API — no participa en las reglas de negocio de sorteos.
@@ -97,13 +103,17 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
                                    agnóstico de HTTP
       exclude_participant.go
       list_participants.go      → GET /campaigns/:id/participants (sin UC dedicado)
-      run_draw.go
-      list_campaign_results.go
+      run_draw.go                → UC-3.1: valida precondición, arma el pool de
+                                    elegibles, delega en domain.SelectWinners
+      get_draw_result.go         → UC-3.2
 
   /infrastructure
     /auth
       jwt.go               → firma y valida JWT (implementa TokenIssuer)
       password_hasher.go   → hashing de contraseñas con bcrypt
+    /random
+      generator.go          → RandomGenerator con crypto/rand (la seed que
+                               persiste cada Draw)
     /instagram
       graph_client.go  → implementa InstagramClient contra graph.facebook.com
                           (UC-2.1; no ejercitado contra una cuenta real, ver nota

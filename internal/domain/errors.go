@@ -29,4 +29,13 @@ var (
 	ErrCampaignNotPost = errors.New("la campaña debe ser de tipo 'post'")
 
 	ErrParticipantNotFound = errors.New("participante no encontrado")
+
+	// ErrCampaignNotDrawable cubre la precondición real de UC-3.1: la
+	// campaña debe estar cerrada o sorteada (decisión confirmada, ver
+	// FA-3.1.3 — el re-sorteo ocurre justamente sobre una campaña ya
+	// sorteada, no hay forma de volver a 'cerrada').
+	ErrCampaignNotDrawable   = errors.New("la campaña debe estar en estado 'cerrada' o 'sorteada' para sortear")
+	ErrInvalidWinnersCount   = errors.New("winners_count debe ser 1, 2 o 3")
+	ErrNotEnoughParticipants = errors.New("no hay suficientes participantes elegibles para la cantidad de ganadores pedida")
+	ErrDrawNotFound          = errors.New("sorteo no encontrado")
 )

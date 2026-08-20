@@ -11,12 +11,12 @@ type Handlers struct {
 	Campaign    *CampaignHandler
 	Participant *ParticipantHandler
 	Webhook     *WebhookHandler
+	Draw        *DrawHandler
 }
 
-// NewRouter arma el árbol de rutas. Todas las rutas de administración
-// requieren JWT (vía RequireAuth) salvo /auth/login y /webhooks/instagram
-// (este último se valida con la firma de Instagram). Las rutas de sorteos
-// se agregan en la próxima fase.
+// NewRouter arma el árbol de rutas completo. Todas las rutas de
+// administración requieren JWT (vía RequireAuth) salvo /auth/login y
+// /webhooks/instagram (este último se valida con la firma de Instagram).
 func NewRouter(app *fiber.App, h Handlers, tokens domain.TokenIssuer) {
 	app.Post("/auth/login", h.Auth.Login)
 	app.Get("/webhooks/instagram", h.Webhook.Verify)
@@ -29,4 +29,6 @@ func NewRouter(app *fiber.App, h Handlers, tokens domain.TokenIssuer) {
 	admin.Post("/campaigns/:id/sync-comments", h.Participant.SyncComments)
 	admin.Get("/campaigns/:id/participants", h.Participant.List)
 	admin.Patch("/campaigns/:id/participants/:pid/exclude", h.Participant.Exclude)
+	admin.Post("/campaigns/:id/draws", h.Draw.Run)
+	admin.Get("/campaigns/:id/draws/:draw_id", h.Draw.Get)
 }

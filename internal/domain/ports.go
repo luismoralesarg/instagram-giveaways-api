@@ -51,6 +51,27 @@ type ParticipantRepository interface {
 	FindByID(ctx context.Context, campaignID, participantID string) (*Participant, error)
 	Exclude(ctx context.Context, participantID, reason string) error
 	ListByCampaign(ctx context.Context, campaignID string) ([]Participant, error)
+
+	// ListEligibleByCampaign devuelve los participantes no excluidos, en un
+	// orden determinístico (ORDER BY id) — necesario para que UC-3.1 sea
+	// reproducible dado el mismo random_seed.
+	ListEligibleByCampaign(ctx context.Context, campaignID string) ([]Participant, error)
+}
+
+// DrawRepository persiste y consulta sorteos y sus ganadores.
+type DrawRepository interface {
+	// Create persiste el Draw y todos sus Winner de forma atómica.
+	Create(ctx context.Context, d *Draw) error
+	FindByID(ctx context.Context, campaignID, drawID string) (*Draw, error)
+}
+
+// RandomGenerator produce la semilla aleatoria que cada Draw persiste (ver
+// ARCHITECTURE.md §2.4). Implementado en infrastructure/random con
+// crypto/rand — no confundir con el math/rand seedeado con esa semilla
+// dentro de domain.SelectWinners, que es el que necesita ser
+// determinístico.
+type RandomGenerator interface {
+	Seed() int64
 }
 
 // InstagramComment es un comentario ya normalizado, tal como lo devuelve

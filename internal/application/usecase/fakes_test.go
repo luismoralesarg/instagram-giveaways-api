@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -176,6 +177,19 @@ func (r *fakeParticipantRepo) ListByCampaign(ctx context.Context, campaignID str
 	return out, nil
 }
 
+func (r *fakeParticipantRepo) ListEligibleByCampaign(ctx context.Context, campaignID string) ([]domain.Participant, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []domain.Participant
+	for _, p := range r.participants {
+		if p.CampaignID == campaignID && !p.IsExcluded {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
 type fakeInstagramClient struct {
 	comments []domain.InstagramComment
 	err      error
@@ -187,3 +201,46 @@ func (f *fakeInstagramClient) FetchComments(ctx context.Context, mediaID string)
 	}
 	return f.comments, nil
 }
+
+type fakeDrawRepo struct {
+	mu     sync.Mutex
+	draws  map[string]*domain.Draw
+	nextID int
+}
+
+func newFakeDrawRepo() *fakeDrawRepo {
+	return &fakeDrawRepo{draws: map[string]*domain.Draw{}}
+}
+
+func (r *fakeDrawRepo) Create(ctx context.Context, d *domain.Draw) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.nextID++
+	d.ID = fmt.Sprintf("draw-%d", r.nextID)
+	d.CreatedAt = time.Now()
+	for i := range d.Winners {
+		d.Winners[i].DrawID = d.ID
+	}
+	cp := *d
+	cp.Winners = append([]domain.Winner(nil), d.Winners...)
+	r.draws[d.ID] = &cp
+	return nil
+}
+
+func (r *fakeDrawRepo) FindByID(ctx context.Context, campaignID, drawID string) (*domain.Draw, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.draws[drawID]
+	if !ok || d.CampaignID != campaignID {
+		return nil, domain.ErrDrawNotFound
+	}
+	cp := *d
+	cp.Winners = append([]domain.Winner(nil), d.Winners...)
+	return &cp, nil
+}
+
+type fakeRandomGenerator struct {
+	seed int64
+}
+
+func (f fakeRandomGenerator) Seed() int64 { return f.seed }

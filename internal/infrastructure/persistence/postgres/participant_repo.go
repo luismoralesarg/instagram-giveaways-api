@@ -98,3 +98,32 @@ func (r *ParticipantRepository) ListByCampaign(ctx context.Context, campaignID s
 
 	return participants, rows.Err()
 }
+
+// ListEligibleByCampaign devuelve los participantes no excluidos, en un
+// orden determinístico (ORDER BY id) — necesario para que UC-3.1 sea
+// reproducible dado el mismo random_seed.
+func (r *ParticipantRepository) ListEligibleByCampaign(ctx context.Context, campaignID string) ([]domain.Participant, error) {
+	const query = `
+		SELECT id, campaign_id, instagram_user_id, username, source_type, is_excluded, excluded_reason, created_at
+		FROM participants
+		WHERE campaign_id = $1 AND is_excluded = false
+		ORDER BY id
+	`
+
+	rows, err := r.pool.Query(ctx, query, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var participants []domain.Participant
+	for rows.Next() {
+		var p domain.Participant
+		if err := rows.Scan(&p.ID, &p.CampaignID, &p.InstagramUserID, &p.Username, &p.SourceType, &p.IsExcluded, &p.ExcludedReason, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		participants = append(participants, p)
+	}
+
+	return participants, rows.Err()
+}
