@@ -1,0 +1,74 @@
+# Deploy de un solo servidor (ver .github/workflows/release.yml, job "deploy"): git pull +
+# docker compose up --build -d. Postgres corre acá mismo, con un volumen para persistir los
+# datos — si ya tenés un Postgres administrado aparte, sacá el servicio `postgres` de este
+# archivo y apuntá DATABASE_URL ahí en vez de al hostname `postgres`.
+#
+# Variables de entorno: copiar .env.example a .env en el mismo directorio que este archivo y
+# completarlo antes de levantar esto. docker compose lo lee solo (tanto para interpolar
+# ${VARS} acá abajo como, vía env_file, para pasárselas a los contenedores).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: giveaways
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: giveaways
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U giveaways -d giveaways"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Sin `ports:` a propósito: solo accesible desde los otros contenedores de esta red, no
+    # desde el host. Para un psql puntual: `docker compose -f docker-compose.prod.yml exec postgres psql -U giveaways`.
+
+  api:
+    build: .
+    image: instagram-giveaways-api:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    image: instagram-giveaways-api:latest
+    restart: unless-stopped
+    command: ["./scheduler"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Herramientas de alta manual (UC fuera del alcance de un endpoint HTTP, ver CLAUDE.md).
+  # No arrancan con `up -d` — se corren a demanda:
+  #   docker compose -f docker-compose.prod.yml --profile tools run --rm seedadmin -username=admin -password=algo-seguro
+  #   docker compose -f docker-compose.prod.yml --profile tools run --rm seedinstagramtoken -token=EAAB...
+  seedadmin:
+    build: .
+    image: instagram-giveaways-api:latest
+    profiles: ["tools"]
+    entrypoint: ["./entrypoint.sh", "./seedadmin"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seedinstagramtoken:
+    build: .
+    image: instagram-giveaways-api:latest
+    profiles: ["tools"]
+    entrypoint: ["./entrypoint.sh", "./seedinstagramtoken"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

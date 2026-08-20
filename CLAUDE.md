@@ -45,9 +45,14 @@ go run ./cmd/seedinstagramtoken -token=EAAB... [-expires-in-days=60]
 # (bloquea). Con -run-once: corre ese job ya y sale.
 go run ./cmd/scheduler
 go run ./cmd/scheduler -run-once=refresh-instagram-token
+
+# Deploy (ver Dockerfile, docker-compose.prod.yml, .env.example — copiar a .env y completar)
+docker compose -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.prod.yml --profile tools run --rm seedadmin -username=admin -password=algo-seguro
+docker compose -f docker-compose.prod.yml --profile tools run --rm seedinstagramtoken -token=EAAB...
 ```
 
-(Ajustar esta sección a medida que se agregue Makefile, docker-compose, etc.)
+(Ajustar esta sección a medida que se agregue un Makefile.)
 
 ## Variables de entorno esperadas
 

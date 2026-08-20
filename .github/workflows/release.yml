@@ -52,8 +52,8 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      # Cuando exista un Dockerfile con una etapa de build de `migrate`, pinnear acá la misma
-      # versión para no probar contra un comportamiento distinto al que corre en producción.
+      # Misma versión que la etapa migrate-build del Dockerfile — si se cambia una, cambiar la
+      # otra, para no probar contra un comportamiento de `migrate` distinto al de producción.
       - name: Instalar migrate CLI
         run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
@@ -80,6 +80,12 @@ jobs:
       - name: go test
         run: go test ./... -race
 
+      # Los runners de GitHub Actions sí llegan a Docker Hub (a diferencia del entorno de
+      # desarrollo donde se escribió este Dockerfile, donde la política de red del sandbox lo
+      # bloqueaba) — este paso es la primera validación real de que la imagen construye.
+      - name: docker build
+        run: docker build -t instagram-giveaways-api:ci .
+
   # Crea el tag y el GitHub Release apuntando al commit que se está deployando.
   release:
     needs: test
@@ -98,10 +104,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
 
-  # Deploy: SSH al servidor de producción y git pull + docker compose up --build -d. Requiere
-  # que el contenedor de la API aplique las migraciones solo al arrancar (entrypoint), no hace
-  # falta un paso aparte acá — ver TODO al pie de este archivo sobre lo que falta para que esto
-  # funcione de punta a punta.
+  # Deploy: SSH al servidor de producción y git pull + docker compose up --build -d. Las
+  # migraciones se aplican solas al levantar el contenedor api (docker/entrypoint.sh corre
+  # `migrate ... up` en el arranque), no hace falta un paso aparte acá.
   deploy:
     needs: release
     runs-on: ubuntu-latest
@@ -120,11 +125,12 @@ jobs:
             git pull
             docker compose -f docker-compose.prod.yml up --build -d
 
-# TODO — este workflow todavía no puede correr de punta a punta porque el repo, por ahora, es
-# solo documentación. Falta, en este orden:
-#   1. go.mod y código en cmd/api e internal/ (hoy no hay un solo archivo .go en el repo).
-#   2. internal/infrastructure/persistence/postgres/migrations/ con al menos una migración.
-#   3. Dockerfile de la API y docker-compose.prod.yml en el servidor de producción.
-#   4. Environment "production" en Settings → Environments, con los secrets:
+# TODO — lo único que falta para que este workflow corra de punta a punta:
+#   1. Environment "production" en Settings → Environments, con los secrets:
 #      PROD_SSH_HOST, PROD_SSH_USER, PROD_SSH_PRIVATE_KEY, PROD_SSH_PORT (opcional),
 #      PROD_APP_PATH.
+#   2. En el servidor: PROD_APP_PATH con un clone del repo, y un archivo .env (a partir de
+#      .env.example) con las variables reales — nunca se commitea.
+#   3. El Dockerfile no se pudo construir en el entorno de desarrollo de este proyecto (política
+#      de red del sandbox bloqueaba el registry de Docker Hub) — conviene un build manual antes
+#      de confiar en el primer deploy real.
