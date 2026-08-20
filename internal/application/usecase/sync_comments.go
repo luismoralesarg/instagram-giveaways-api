@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"regexp"
 
 	"github.com/luismoralesarg/instagram-giveaways-api/internal/domain"
@@ -75,6 +76,13 @@ func (uc *SyncComments) Execute(ctx context.Context, in SyncCommentsInput) (Sync
 			SourceType:      domain.ParticipantSourceComment,
 		}
 		if err := uc.participants.Create(ctx, participant); err != nil {
+			if errors.Is(err, domain.ErrParticipantAlreadyExists) {
+				// Otra corrida de sync-comments (o el webhook de historia,
+				// si alguna vez comparten usuario) ganó la carrera contra
+				// el pre-chequeo de arriba — mismo desenlace que FA-2.1.1,
+				// no aborta el resto del lote.
+				continue
+			}
 			return SyncCommentsOutput{}, err
 		}
 		added++

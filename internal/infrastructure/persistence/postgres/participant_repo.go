@@ -27,8 +27,23 @@ func (r *ParticipantRepository) Create(ctx context.Context, p *domain.Participan
 		RETURNING id, created_at
 	`
 
-	return r.pool.QueryRow(ctx, query, p.CampaignID, p.InstagramUserID, p.Username, p.SourceType).
+	err := r.pool.QueryRow(ctx, query, p.CampaignID, p.InstagramUserID, p.Username, p.SourceType).
 		Scan(&p.ID, &p.CreatedAt)
+	if err != nil {
+		if isPgError(err, pgErrUniqueViolation) {
+			// El webhook de Instagram entrega at-least-once (puede reenviar el
+			// mismo story mention), y sync-comments puede correr concurrente
+			// dos veces — el pre-chequeo de ExistsByCampaignAndInstagramUserID
+			// no alcanza para evitar la carrera, así que el índice único de
+			// participants (campaign_id, instagram_user_id) es la última
+			// palabra. Se mapea al mismo error "ya existe" para que los
+			// callers lo traten igual que el caso detectado por el pre-chequeo.
+			return domain.ErrParticipantAlreadyExists
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (r *ParticipantRepository) ExistsByCampaignAndInstagramUserID(ctx context.Context, campaignID, instagramUserID string) (bool, error) {

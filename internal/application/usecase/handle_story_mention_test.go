@@ -48,3 +48,17 @@ func TestHandleStoryMention_DuplicateIgnored(t *testing.T) {
 		t.Fatalf("len(participantes) = %d, quiero 1 (no debería duplicar)", len(all))
 	}
 }
+
+// Carrera: el pre-chequeo de ExistsByCampaignAndInstagramUserID no ve nada
+// (ej. Instagram reentregó el mismo webhook en simultáneo), pero Create()
+// choca contra el índice único — debe tratarse igual que FA-2.2.3, no
+// como una falla.
+func TestHandleStoryMention_CreateRace_TreatedAsAlreadyRegistered(t *testing.T) {
+	campaigns := newFakeCampaignRepo()
+	campaigns.put(&domain.Campaign{ID: "c1", Type: domain.CampaignTypeStory, Status: domain.CampaignStatusActive})
+
+	uc := NewHandleStoryMention(campaigns, newFakeParticipantRepoAlwaysConflicts())
+	if err := uc.Execute(context.Background(), HandleStoryMentionInput{InstagramUserID: "u1"}); err != nil {
+		t.Fatalf("Execute() error = %v, quiero nil (ErrParticipantAlreadyExists no debería propagarse)", err)
+	}
+}

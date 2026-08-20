@@ -30,6 +30,13 @@ var (
 
 	ErrParticipantNotFound = errors.New("participante no encontrado")
 
+	// ErrParticipantAlreadyExists cubre la dedup por (campaign_id,
+	// instagram_user_id) — normalmente la detecta el pre-chequeo de
+	// ExistsByCampaignAndInstagramUserID (UC-2.1/UC-2.2), pero el índice
+	// único de Postgres es la última palabra ante una carrera (el webhook
+	// de Instagram entrega at-least-once).
+	ErrParticipantAlreadyExists = errors.New("el participante ya está registrado en esta campaña")
+
 	// ErrCampaignNotDrawable cubre la precondición real de UC-3.1: la
 	// campaña debe estar cerrada o sorteada (decisión confirmada, ver
 	// FA-3.1.3 — el re-sorteo ocurre justamente sobre una campaña ya

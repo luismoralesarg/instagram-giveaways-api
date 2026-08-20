@@ -123,6 +123,15 @@ func (r *fakeParticipantRepo) put(p *domain.Participant) {
 
 func (r *fakeParticipantRepo) Create(ctx context.Context, p *domain.Participant) error {
 	r.mu.Lock()
+	for _, existing := range r.participants {
+		if existing.CampaignID == p.CampaignID && existing.InstagramUserID == p.InstagramUserID {
+			r.mu.Unlock()
+			// Simula el índice único de Postgres (campaign_id, instagram_user_id)
+			// — así los tests pueden ejercitar el camino de carrera donde el
+			// pre-chequeo de ExistsByCampaignAndInstagramUserID no alcanzó.
+			return domain.ErrParticipantAlreadyExists
+		}
+	}
 	r.nextID++
 	p.ID = fmt.Sprintf("participant-%d", r.nextID)
 	p.CreatedAt = time.Now()
@@ -188,6 +197,23 @@ func (r *fakeParticipantRepo) ListEligibleByCampaign(ctx context.Context, campai
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// fakeParticipantRepoAlwaysConflicts simula la carrera donde el
+// pre-chequeo de ExistsByCampaignAndInstagramUserID no ve nada, pero
+// Create() choca igual contra el índice único (otro actor ganó la
+// carrera) — para probar que los usecases tratan ese error como "ya
+// existe", no como una falla real.
+type fakeParticipantRepoAlwaysConflicts struct {
+	*fakeParticipantRepo
+}
+
+func newFakeParticipantRepoAlwaysConflicts() *fakeParticipantRepoAlwaysConflicts {
+	return &fakeParticipantRepoAlwaysConflicts{fakeParticipantRepo: newFakeParticipantRepo()}
+}
+
+func (r *fakeParticipantRepoAlwaysConflicts) Create(ctx context.Context, p *domain.Participant) error {
+	return domain.ErrParticipantAlreadyExists
 }
 
 type fakeInstagramClient struct {

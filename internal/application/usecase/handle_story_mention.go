@@ -47,5 +47,14 @@ func (uc *HandleStoryMention) Execute(ctx context.Context, in HandleStoryMention
 		InstagramUserID: in.InstagramUserID,
 		SourceType:      domain.ParticipantSourceStoryMention,
 	}
-	return uc.participants.Create(ctx, participant)
+	if err := uc.participants.Create(ctx, participant); err != nil {
+		if errors.Is(err, domain.ErrParticipantAlreadyExists) {
+			// El pre-chequeo de arriba no vio nada porque perdió la carrera
+			// contra otra entrega del mismo evento (Instagram reintenta
+			// webhooks at-least-once) — mismo desenlace que FA-2.2.3.
+			return nil
+		}
+		return err
+	}
+	return nil
 }

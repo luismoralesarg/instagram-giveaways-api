@@ -77,6 +77,33 @@ func TestSyncComments_RejectsNonActiveCampaign(t *testing.T) {
 	}
 }
 
+// Carrera: el pre-chequeo de ExistsByCampaignAndInstagramUserID no ve nada
+// (ej. otra corrida de sync-comments en simultáneo), pero Create() choca
+// contra el índice único — no debe abortar el resto del lote ni contar
+// ese comentario como nuevo.
+func TestSyncComments_CreateRace_SkippedNotAborted(t *testing.T) {
+	campaigns := newFakeCampaignRepo()
+	campaigns.put(&domain.Campaign{
+		ID:      "c1",
+		Type:    domain.CampaignTypePost,
+		MediaID: "media-123",
+		Status:  domain.CampaignStatusActive,
+	})
+
+	instagram := &fakeInstagramClient{comments: []domain.InstagramComment{
+		{InstagramUserID: "u1", Username: "user1", Text: "hola"},
+	}}
+
+	uc := NewSyncComments(campaigns, newFakeParticipantRepoAlwaysConflicts(), instagram)
+	out, err := uc.Execute(context.Background(), SyncCommentsInput{CampaignID: "c1"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, quiero nil (ErrParticipantAlreadyExists no debería abortar el lote)", err)
+	}
+	if out.NewParticipants != 0 {
+		t.Errorf("NewParticipants = %d, quiero 0 (el que chocó no cuenta como nuevo)", out.NewParticipants)
+	}
+}
+
 func TestCountMentions(t *testing.T) {
 	cases := map[string]int{
 		"":                        0,
