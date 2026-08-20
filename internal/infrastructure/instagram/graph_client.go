@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/luismoralesarg/instagram-giveaways-api/internal/domain"
 )
@@ -13,11 +15,13 @@ const defaultGraphBaseURL = "https://graph.facebook.com/v19.0"
 
 // GraphClient implementa domain.InstagramClient contra la Graph API real.
 //
-// NOTA: no se pudo ejercitar contra una cuenta de Instagram real en este
-// entorno de desarrollo (no hay INSTAGRAM_ACCESS_TOKEN disponible). El
-// shape de la respuesta sigue la documentación pública de
-// GET /{media-id}/comments, pero conviene validarlo contra una cuenta real
-// antes de depender de esto en producción.
+// NOTA: paginación, autenticación por header y manejo de errores están
+// cubiertos por tests contra un servidor HTTP fake (graph_client_test.go),
+// pero esto no reemplaza probarlo contra una cuenta de Instagram real — no
+// se pudo ejercitar contra una en este entorno de desarrollo (no hay
+// INSTAGRAM_ACCESS_TOKEN disponible). El shape de la respuesta sigue la
+// documentación pública de GET /{media-id}/comments; conviene validarlo
+// contra una cuenta real antes de confiar en esto en producción.
 type GraphClient struct {
 	accessToken string
 	httpClient  *http.Client
@@ -48,9 +52,9 @@ type commentsPage struct {
 func (g *GraphClient) FetchComments(ctx context.Context, mediaID string) ([]domain.InstagramComment, error) {
 	var comments []domain.InstagramComment
 
-	url := fmt.Sprintf("%s/%s/comments?fields=text,from&access_token=%s", g.baseURL, mediaID, g.accessToken)
-	for url != "" {
-		page, next, err := g.fetchPage(ctx, url)
+	next := fmt.Sprintf("%s/%s/comments?fields=text,from", g.baseURL, url.PathEscape(mediaID))
+	for next != "" {
+		page, err := g.fetchPage(ctx, next)
 		if err != nil {
 			return nil, err
 		}
@@ -63,32 +67,56 @@ func (g *GraphClient) FetchComments(ctx context.Context, mediaID string) ([]doma
 			})
 		}
 
-		url = next
+		next = page.Paging.Next
 	}
 
 	return comments, nil
 }
 
-func (g *GraphClient) fetchPage(ctx context.Context, url string) (commentsPage, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (g *GraphClient) fetchPage(ctx context.Context, pageURL string) (commentsPage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
-		return commentsPage{}, "", err
+		return commentsPage{}, err
 	}
+	// El token va en el header, no en la URL: evita romper la URL si el
+	// token trae caracteres especiales (+, /, =) y evita que quede
+	// expuesto en logs de servidores/proxies intermedios.
+	req.Header.Set("Authorization", "Bearer "+g.accessToken)
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
-		return commentsPage{}, "", err
+		return commentsPage{}, err
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return commentsPage{}, err
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return commentsPage{}, "", fmt.Errorf("graph api: status %d", resp.StatusCode)
+		return commentsPage{}, graphAPIError(resp.StatusCode, body)
 	}
 
 	var page commentsPage
-	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-		return commentsPage{}, "", err
+	if err := json.Unmarshal(body, &page); err != nil {
+		return commentsPage{}, err
 	}
 
-	return page, page.Paging.Next, nil
+	return page, nil
+}
+
+// graphAPIError intenta extraer el mensaje real de un error de la Graph
+// API (siempre {"error": {"message": "..."}}), y si el body no tiene ese
+// shape cae al código de estado HTTP.
+func graphAPIError(status int, body []byte) error {
+	var errResp struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
+		return fmt.Errorf("graph api: %s (status %d)", errResp.Error.Message, status)
+	}
+	return fmt.Errorf("graph api: status %d", status)
 }

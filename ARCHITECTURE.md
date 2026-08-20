@@ -116,8 +116,9 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
                                persiste cada Draw)
     /instagram
       graph_client.go  → implementa InstagramClient contra graph.facebook.com
-                          (UC-2.1; no ejercitado contra una cuenta real, ver nota
-                          en el propio archivo)
+                          (UC-2.1; paginación/auth/errores cubiertos por tests
+                          contra un servidor fake, pero no ejercitado contra una
+                          cuenta real — ver nota en el propio archivo)
       signature.go      → verifica la firma HMAC-SHA256 (X-Hub-Signature-256) de
                           los webhooks de Meta
       token_refresher.go → maneja el ciclo de vida del token (pendiente, ver §3)
