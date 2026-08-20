@@ -1,0 +1,1 @@
+DROP INDEX campaigns_single_active_story_idx;

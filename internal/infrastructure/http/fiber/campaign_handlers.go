@@ -76,7 +76,8 @@ func campaignError(err error) error {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	case errors.Is(err, domain.ErrDuplicateMediaID),
 		errors.Is(err, domain.ErrCampaignNotDraft),
-		errors.Is(err, domain.ErrCampaignNotActive):
+		errors.Is(err, domain.ErrCampaignNotActive),
+		errors.Is(err, domain.ErrActiveStoryCampaignExists):
 		return fiber.NewError(fiber.StatusConflict, err.Error())
 	default:
 		return fiber.NewError(fiber.StatusInternalServerError, "error interno")

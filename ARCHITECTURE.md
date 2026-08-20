@@ -39,6 +39,8 @@ Cada Campaign define, al crearse, sus reglas de participación válida. Ejemplos
 
 Estas reglas se aplican en el momento de sincronizar/capturar participantes, no en el sorteo — un participante inválido ni siquiera se persiste como elegible (o se persiste marcado como `is_excluded`, ver 2.3).
 
+**Decisión sobre `must_follow` (confirmada con el usuario):** la Graph API de Instagram no permite verificar si un comentarista arbitrario sigue la cuenta sin el access token de ESE usuario — no hay endpoint para chequear el estado de "sigue" de un tercero. Por eso `must_follow` se guarda en `Campaign` solo a título informativo/documental; `sync-comments` (UC-2.1) **no lo aplica como filtro automático**. `min_mentions` sí se verifica (cuenta de menciones `@usuario` en el texto del comentario).
+
 ### 2.3 Exclusión manual
 
 Un participante válido según las reglas automáticas puede igual necesitar exclusión manual (cuenta falsa, empleado del negocio, etc.). Se modela como un campo en `Participant`: `is_excluded bool`, `excluded_reason string`. No se borra el registro — se mantiene para trazabilidad, pero el motor de sorteo lo ignora.
@@ -64,6 +66,8 @@ Existe una entidad `User` (id, username, password_hash, created_at) usada exclus
 
 Esto implica que el webhook debe estar activo y probado **antes** de que arranque cualquier campaña que dependa de historias.
 
+**Decisión sobre campañas de historia concurrentes (confirmada con el usuario):** el payload del webhook de story mention no trae ningún identificador que permita saber a cuál campaña de tipo historia corresponde una mención — solo una URL de imagen. Por eso **como máximo una campaña de tipo historia puede estar `activa` a la vez**: `POST /campaigns/:id/activate` rechaza activar una segunda campaña de historia mientras otra siga activa (mismo mecanismo que la deduplicación de `media_id` en UC-1.1 — pre-chequeo en el caso de uso + índice único parcial en Postgres como respaldo).
+
 ## 4. Arquitectura (hexagonal)
 
 ```
@@ -88,9 +92,11 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       create_campaign.go
       activate_campaign.go
       close_campaign.go
-      sync_comments.go          → trae comentarios del post vía Graph API
-      handle_story_mention.go   → procesa el evento del webhook de historias
+      sync_comments.go          → trae comentarios del post vía Graph API (UC-2.1)
+      handle_story_mention.go   → procesa el evento del webhook de historias (UC-2.2),
+                                   agnóstico de HTTP
       exclude_participant.go
+      list_participants.go      → GET /campaigns/:id/participants (sin UC dedicado)
       run_draw.go
       list_campaign_results.go
 
@@ -99,9 +105,12 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       jwt.go               → firma y valida JWT (implementa TokenIssuer)
       password_hasher.go   → hashing de contraseñas con bcrypt
     /instagram
-      graph_client.go     → implementa InstagramClient contra graph.facebook.com
-      webhook_handler.go  → recibe y valida los webhooks de Instagram
-      token_refresher.go  → maneja el ciclo de vida del token
+      graph_client.go  → implementa InstagramClient contra graph.facebook.com
+                          (UC-2.1; no ejercitado contra una cuenta real, ver nota
+                          en el propio archivo)
+      signature.go      → verifica la firma HMAC-SHA256 (X-Hub-Signature-256) de
+                          los webhooks de Meta
+      token_refresher.go → maneja el ciclo de vida del token (pendiente, ver §3)
     /persistence/postgres
       db.go                → pool de conexión (pgxpool)
       errors.go             → helpers para traducir errores de pgx/postgres
@@ -113,10 +122,12 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
     /http/fiber
       router.go
       auth_handlers.go
-      auth_middleware.go  → valida el Bearer token en las rutas protegidas
+      auth_middleware.go     → valida el Bearer token en las rutas protegidas
       campaign_handlers.go
+      participant_handlers.go
+      webhook_handlers.go     → GET/POST /webhooks/instagram: valida firma y
+                                delega en handle_story_mention.go (UC-2.2)
       draw_handlers.go
-      webhook_handlers.go
 
   /config
     config.go             → carga de variables de entorno

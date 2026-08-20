@@ -19,4 +19,14 @@ var (
 	// ErrDuplicateMediaID cubre la regla de UC-1.1: un media_id no puede
 	// tener más de una campaña activa/draft simultánea.
 	ErrDuplicateMediaID = errors.New("ya existe una campaña activa o en draft para este media_id")
+
+	// ErrActiveStoryCampaignExists cubre la regla acordada para UC-2.2: el
+	// webhook de mención de historia no trae en el payload un identificador
+	// que permita desambiguar a qué campaña corresponde si hay más de una
+	// campaña de tipo historia activa a la vez, así que solo se permite una.
+	ErrActiveStoryCampaignExists = errors.New("ya hay una campaña de tipo historia activa")
+
+	ErrCampaignNotPost = errors.New("la campaña debe ser de tipo 'post'")
+
+	ErrParticipantNotFound = errors.New("participante no encontrado")
 )

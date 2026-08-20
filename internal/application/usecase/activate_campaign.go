@@ -21,6 +21,18 @@ func (uc *ActivateCampaign) Execute(ctx context.Context, campaignID string) erro
 		return err
 	}
 
+	// Regla acordada para UC-2.2: a lo sumo una campaña de tipo historia
+	// activa a la vez (el webhook de Instagram no permite desambiguar).
+	if campaign.Type == domain.CampaignTypeStory {
+		exists, err := uc.campaigns.ExistsActiveStoryCampaign(ctx)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return domain.ErrActiveStoryCampaignExists
+		}
+	}
+
 	if err := campaign.Activate(); err != nil {
 		return err
 	}
