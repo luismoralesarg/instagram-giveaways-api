@@ -32,9 +32,10 @@ func main() {
 	campaignRepo := postgres.NewCampaignRepository(pool)
 	participantRepo := postgres.NewParticipantRepository(pool)
 	drawRepo := postgres.NewDrawRepository(pool)
+	instagramTokenRepo := postgres.NewInstagramTokenRepository(pool)
 	hasher := auth.NewBcryptHasher()
 	tokens := auth.NewJWTIssuer(cfg.JWTSecret, cfg.JWTExpiration)
-	instagramClient := instagram.NewGraphClient(cfg.InstagramAccessToken)
+	instagramClient := instagram.NewGraphClient(instagramTokenRepo)
 	randomGen := random.NewGenerator()
 
 	loginUC := usecase.NewLogin(userRepo, hasher, tokens)

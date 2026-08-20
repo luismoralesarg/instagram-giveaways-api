@@ -38,4 +38,8 @@ var (
 	ErrInvalidWinnersCount   = errors.New("winners_count debe ser 1, 2 o 3")
 	ErrNotEnoughParticipants = errors.New("no hay suficientes participantes elegibles para la cantidad de ganadores pedida")
 	ErrDrawNotFound          = errors.New("sorteo no encontrado")
+
+	// ErrInstagramTokenNotFound indica que todavía no se cargó el primer
+	// InstagramToken (ver cmd/seedinstagramtoken).
+	ErrInstagramTokenNotFound = errors.New("no hay un instagram token cargado")
 )

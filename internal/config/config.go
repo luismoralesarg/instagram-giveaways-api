@@ -13,7 +13,12 @@ type Config struct {
 	JWTSecret     string
 	JWTExpiration time.Duration
 
-	InstagramAccessToken        string
+	// InstagramAppID e InstagramAppSecret identifican la app de Meta — se
+	// usan para refrescar el long-lived token (grant_type=fb_exchange_token,
+	// ver ARCHITECTURE.md §3). El access token en sí ya no es una env var:
+	// vive en Postgres (tabla instagram_token) desde que existe
+	// cmd/scheduler; se carga una vez con cmd/seedinstagramtoken.
+	InstagramAppID              string
 	InstagramAppSecret          string
 	InstagramWebhookVerifyToken string
 }
@@ -26,7 +31,7 @@ func Load() (Config, error) {
 		DatabaseURL:                 os.Getenv("DATABASE_URL"),
 		JWTSecret:                   os.Getenv("JWT_SECRET"),
 		JWTExpiration:               24 * time.Hour,
-		InstagramAccessToken:        os.Getenv("INSTAGRAM_ACCESS_TOKEN"),
+		InstagramAppID:              os.Getenv("INSTAGRAM_APP_ID"),
 		InstagramAppSecret:          os.Getenv("INSTAGRAM_APP_SECRET"),
 		InstagramWebhookVerifyToken: os.Getenv("INSTAGRAM_WEBHOOK_VERIFY_TOKEN"),
 	}

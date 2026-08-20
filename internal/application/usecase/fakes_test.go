@@ -244,3 +244,36 @@ type fakeRandomGenerator struct {
 }
 
 func (f fakeRandomGenerator) Seed() int64 { return f.seed }
+
+type fakeInstagramTokenRepo struct {
+	token *domain.InstagramToken
+}
+
+func (r *fakeInstagramTokenRepo) Get(ctx context.Context) (*domain.InstagramToken, error) {
+	if r.token == nil {
+		return nil, domain.ErrInstagramTokenNotFound
+	}
+	cp := *r.token
+	return &cp, nil
+}
+
+func (r *fakeInstagramTokenRepo) Save(ctx context.Context, t *domain.InstagramToken) error {
+	cp := *t
+	r.token = &cp
+	return nil
+}
+
+type fakeInstagramTokenRefresher struct {
+	newAccessToken string
+	expiresIn      time.Duration
+	err            error
+	calledWith     string
+}
+
+func (f *fakeInstagramTokenRefresher) Refresh(ctx context.Context, currentToken string) (string, time.Duration, error) {
+	f.calledWith = currentToken
+	if f.err != nil {
+		return "", 0, f.err
+	}
+	return f.newAccessToken, f.expiresIn, nil
+}

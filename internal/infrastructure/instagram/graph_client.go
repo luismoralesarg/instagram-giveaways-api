@@ -23,16 +23,19 @@ const defaultGraphBaseURL = "https://graph.facebook.com/v19.0"
 // documentación pública de GET /{media-id}/comments; conviene validarlo
 // contra una cuenta real antes de confiar en esto en producción.
 type GraphClient struct {
-	accessToken string
-	httpClient  *http.Client
-	baseURL     string
+	tokens     domain.InstagramTokenRepository
+	httpClient *http.Client
+	baseURL    string
 }
 
-func NewGraphClient(accessToken string) *GraphClient {
+// NewGraphClient recibe el repositorio del token en vez de un string fijo:
+// el token se lee de Postgres en cada llamada, así un refresh persistido
+// por el scheduler tiene efecto sin reiniciar el proceso de la API.
+func NewGraphClient(tokens domain.InstagramTokenRepository) *GraphClient {
 	return &GraphClient{
-		accessToken: accessToken,
-		httpClient:  http.DefaultClient,
-		baseURL:     defaultGraphBaseURL,
+		tokens:     tokens,
+		httpClient: http.DefaultClient,
+		baseURL:    defaultGraphBaseURL,
 	}
 }
 
@@ -50,11 +53,16 @@ type commentsPage struct {
 }
 
 func (g *GraphClient) FetchComments(ctx context.Context, mediaID string) ([]domain.InstagramComment, error) {
+	token, err := g.tokens.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("obtener instagram access token: %w", err)
+	}
+
 	var comments []domain.InstagramComment
 
 	next := fmt.Sprintf("%s/%s/comments?fields=text,from", g.baseURL, url.PathEscape(mediaID))
 	for next != "" {
-		page, err := g.fetchPage(ctx, next)
+		page, err := g.fetchPage(ctx, next, token.AccessToken)
 		if err != nil {
 			return nil, err
 		}
@@ -73,7 +81,7 @@ func (g *GraphClient) FetchComments(ctx context.Context, mediaID string) ([]doma
 	return comments, nil
 }
 
-func (g *GraphClient) fetchPage(ctx context.Context, pageURL string) (commentsPage, error) {
+func (g *GraphClient) fetchPage(ctx context.Context, pageURL, accessToken string) (commentsPage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return commentsPage{}, err
@@ -81,7 +89,7 @@ func (g *GraphClient) fetchPage(ctx context.Context, pageURL string) (commentsPa
 	// El token va en el header, no en la URL: evita romper la URL si el
 	// token trae caracteres especiales (+, /, =) y evita que quede
 	// expuesto en logs de servidores/proxies intermedios.
-	req.Header.Set("Authorization", "Bearer "+g.accessToken)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
@@ -104,19 +112,4 @@ func (g *GraphClient) fetchPage(ctx context.Context, pageURL string) (commentsPa
 	}
 
 	return page, nil
-}
-
-// graphAPIError intenta extraer el mensaje real de un error de la Graph
-// API (siempre {"error": {"message": "..."}}), y si el body no tiene ese
-// shape cae al código de estado HTTP.
-func graphAPIError(status int, body []byte) error {
-	var errResp struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
-		return fmt.Errorf("graph api: %s (status %d)", errResp.Error.Message, status)
-	}
-	return fmt.Errorf("graph api: status %d", status)
 }

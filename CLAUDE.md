@@ -36,6 +36,15 @@ migrate -path internal/infrastructure/persistence/postgres/migrations -database 
 
 # Alta manual de un administrador (no hay endpoint de registro, ver "Autenticación" arriba)
 go run ./cmd/seedadmin -username=admin -password=algo-seguro
+
+# Alta manual del primer InstagramToken (ver ARCHITECTURE.md §3.1) — a partir de
+# acá, cmd/scheduler lo mantiene fresco automáticamente
+go run ./cmd/seedinstagramtoken -token=EAAB... [-expires-in-days=60]
+
+# Módulo de tareas programadas (cron). Sin flags: arranca y corre en background
+# (bloquea). Con -run-once: corre ese job ya y sale.
+go run ./cmd/scheduler
+go run ./cmd/scheduler -run-once=refresh-instagram-token
 ```
 
 (Ajustar esta sección a medida que se agregue Makefile, docker-compose, etc.)
@@ -44,12 +53,14 @@ go run ./cmd/seedadmin -username=admin -password=algo-seguro
 
 ```
 DATABASE_URL=
-INSTAGRAM_ACCESS_TOKEN=
+INSTAGRAM_APP_ID=
 INSTAGRAM_APP_SECRET=
 INSTAGRAM_WEBHOOK_VERIFY_TOKEN=
 JWT_SECRET=
 PORT=
 ```
+
+Nota: el access token de Instagram en sí **no** es una variable de entorno — vive en Postgres (tabla `instagram_token`) desde que existe `cmd/scheduler`. `INSTAGRAM_APP_ID` e `INSTAGRAM_APP_SECRET` son los que identifican la app de Meta para poder refrescarlo (ver ARCHITECTURE.md §3.1).
 
 ## Al implementar un caso de uso nuevo
 

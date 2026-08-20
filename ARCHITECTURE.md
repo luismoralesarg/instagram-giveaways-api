@@ -72,6 +72,15 @@ Existe una entidad `User` (id, username, password_hash, created_at) usada exclus
 
 Esto implica que el webhook debe estar activo y probado **antes** de que arranque cualquier campaña que dependa de historias.
 
+### 3.1 Refresh del token (implementado)
+
+El token **ya no es una variable de entorno**: vive en Postgres (tabla `instagram_token`, de una sola fila — no hay soporte multi-cuenta). `GraphClient` lo consulta en cada llamada, así un refresh queda reflejado sin reiniciar el proceso de la API.
+
+- **Alta inicial**: `cmd/seedinstagramtoken -token=... [-expires-in-days=60]` — el long-lived token se obtiene a mano (flujo de Meta for Developers, fuera de esta app) y se carga una única vez, mismo patrón que `cmd/seedadmin`.
+- **Refresh automático**: `cmd/scheduler` es un módulo de tareas programadas (`internal/infrastructure/scheduler`, sobre `robfig/cron/v3`) — un registro de jobs con expresión cron, cada uno disparando un caso de uso. El job `refresh-instagram-token` corre todos los días a las 3am y solo actúa si al token le quedan 10 días o menos para vencer (`domain.InstagramToken.NeedsRefresh`); si está dentro de esa ventana, llama a la Graph API (`grant_type=fb_exchange_token`, requiere `INSTAGRAM_APP_ID` además de `INSTAGRAM_APP_SECRET`) y persiste el token nuevo con su expiración fresca.
+- **"Alertar si está por vencer"**: por ahora es el log de `cmd/scheduler` (éxito, salteo, o error del refresh) — no hay canal de notificaciones (email/Slack) en el proyecto todavía.
+- `cmd/scheduler -run-once=<job>` corre un job ya, sin esperar su cron — útil para operar a demanda o para probar que el job funciona.
+
 **Decisión sobre campañas de historia concurrentes (confirmada con el usuario):** el payload del webhook de story mention no trae ningún identificador que permita saber a cuál campaña de tipo historia corresponde una mención — solo una URL de imagen. Por eso **como máximo una campaña de tipo historia puede estar `activa` a la vez**: `POST /campaigns/:id/activate` rechaza activar una segunda campaña de historia mientras otra siga activa (mismo mecanismo que la deduplicación de `media_id` en UC-1.1 — pre-chequeo en el caso de uso + índice único parcial en Postgres como respaldo).
 
 ## 4. Arquitectura (hexagonal)
@@ -79,7 +88,13 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
 ```
 /cmd
   /api
-    main.go              → wiring de dependencias, arranque del servidor Fiber
+    main.go                    → wiring de dependencias, arranque del servidor Fiber
+  /scheduler
+    main.go                    → módulo de tareas programadas (cron); -run-once=<job>
+  /seedadmin
+    main.go                    → alta manual de administradores
+  /seedinstagramtoken
+    main.go                    → alta manual del primer InstagramToken
 
 /internal
   /domain
@@ -87,9 +102,11 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
     participant.go        → entidad Participant
     draw.go               → entidades Draw y Winner + lógica de selección random
     user.go                → entidad User (autenticación)
+    instagram_token.go      → entidad InstagramToken + NeedsRefresh()
     errors.go              → errores de dominio (sentinel errors) de todas las entidades
     ports.go               → interfaces (CampaignRepository, ParticipantRepository,
                               DrawRepository, UserRepository, InstagramClient,
+                              InstagramTokenRepository, InstagramTokenRefresher,
                               RandomGenerator, PasswordHasher, TokenIssuer)
 
   /application
@@ -106,6 +123,8 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       run_draw.go                → UC-3.1: valida precondición, arma el pool de
                                     elegibles, delega en domain.SelectWinners
       get_draw_result.go         → UC-3.2
+      refresh_instagram_token.go → job "refresh-instagram-token" (§3.1): chequea
+                                    NeedsRefresh y, si corresponde, refresca y persiste
 
   /infrastructure
     /auth
@@ -114,14 +133,18 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
     /random
       generator.go          → RandomGenerator con crypto/rand (la seed que
                                persiste cada Draw)
+    /scheduler
+      scheduler.go           → módulo de tareas programadas: registro de Job
+                                (nombre + cron + función) sobre robfig/cron/v3
     /instagram
-      graph_client.go  → implementa InstagramClient contra graph.facebook.com
-                          (UC-2.1; paginación/auth/errores cubiertos por tests
-                          contra un servidor fake, pero no ejercitado contra una
-                          cuenta real — ver nota en el propio archivo)
-      signature.go      → verifica la firma HMAC-SHA256 (X-Hub-Signature-256) de
-                          los webhooks de Meta
-      token_refresher.go → maneja el ciclo de vida del token (pendiente, ver §3)
+      graph_client.go    → implementa InstagramClient contra graph.facebook.com
+                            (UC-2.1; lee el token vigente de InstagramTokenRepository
+                            en cada llamada, no un string fijo)
+      token_refresher.go → implementa InstagramTokenRefresher (fb_exchange_token,
+                            ver §3.1)
+      errors.go           → graphAPIError, compartido por ambos clientes
+      signature.go        → verifica la firma HMAC-SHA256 (X-Hub-Signature-256) de
+                            los webhooks de Meta
     /persistence/postgres
       db.go                → pool de conexión (pgxpool)
       errors.go             → helpers para traducir errores de pgx/postgres
@@ -129,6 +152,7 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
       participant_repo.go
       draw_repo.go
       user_repo.go
+      instagram_token_repo.go → tabla de una sola fila (id fijo en 1)
       migrations/
     /http/fiber
       router.go
@@ -167,4 +191,5 @@ Esto implica que el webhook debe estar activo y probado **antes** de que arranqu
 - PostgreSQL
 - Instagram Graph API (Meta for Developers)
 - JWT (autenticación) + bcrypt (hashing de contraseñas)
+- robfig/cron/v3 (módulo de tareas programadas, `cmd/scheduler`)
 - Arquitectura hexagonal (puertos y adaptadores)

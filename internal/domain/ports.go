@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // UserRepository persiste y consulta usuarios administradores. No hay
 // método de alta: los usuarios se crean manualmente (ver cmd/seedadmin).
@@ -89,4 +92,21 @@ type InstagramComment struct {
 // (ver §3 de ARCHITECTURE.md).
 type InstagramClient interface {
 	FetchComments(ctx context.Context, mediaID string) ([]InstagramComment, error)
+}
+
+// InstagramTokenRepository persiste el único InstagramToken de la cuenta
+// (no hay soporte multi-cuenta, ver CLAUDE.md) — una tabla de una sola
+// fila. GraphClient lo consulta en cada llamada en vez de guardar el
+// token en memoria, para que un refresh persistido tenga efecto sin
+// reiniciar el proceso de la API.
+type InstagramTokenRepository interface {
+	Get(ctx context.Context) (*InstagramToken, error)
+	Save(ctx context.Context, token *InstagramToken) error
+}
+
+// InstagramTokenRefresher intercambia un long-lived token vigente por uno
+// nuevo con una expiración fresca, contra la Graph API
+// (grant_type=fb_exchange_token — ver ARCHITECTURE.md §3).
+type InstagramTokenRefresher interface {
+	Refresh(ctx context.Context, currentToken string) (newAccessToken string, expiresIn time.Duration, err error)
 }

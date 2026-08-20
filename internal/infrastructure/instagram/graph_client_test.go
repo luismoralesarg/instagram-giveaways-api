@@ -6,7 +6,32 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/luismoralesarg/instagram-giveaways-api/internal/domain"
 )
+
+// fakeTokenRepo evita depender de Postgres para testear GraphClient — solo
+// necesitamos que devuelva un access token fijo.
+type fakeTokenRepo struct {
+	token *domain.InstagramToken
+}
+
+func (f *fakeTokenRepo) Get(ctx context.Context) (*domain.InstagramToken, error) {
+	if f.token == nil {
+		return nil, domain.ErrInstagramTokenNotFound
+	}
+	return f.token, nil
+}
+
+func (f *fakeTokenRepo) Save(ctx context.Context, t *domain.InstagramToken) error {
+	f.token = t
+	return nil
+}
+
+func tokenRepoWith(accessToken string) *fakeTokenRepo {
+	return &fakeTokenRepo{token: &domain.InstagramToken{AccessToken: accessToken, ExpiresAt: time.Now().Add(time.Hour)}}
+}
 
 func TestGraphClient_FetchComments_SinglePage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +53,7 @@ func TestGraphClient_FetchComments_SinglePage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &GraphClient{accessToken: "test-token", httpClient: server.Client(), baseURL: server.URL}
+	client := &GraphClient{tokens: tokenRepoWith("test-token"), httpClient: server.Client(), baseURL: server.URL}
 	comments, err := client.FetchComments(context.Background(), "media-123")
 	if err != nil {
 		t.Fatalf("FetchComments() error = %v", err)
@@ -64,7 +89,7 @@ func TestGraphClient_FetchComments_FollowsPagination(t *testing.T) {
 		w.Write([]byte(`{"data": [{"text": "p2", "from": {"id": "u2"}}], "paging": {}}`))
 	})
 
-	client := &GraphClient{accessToken: "t", httpClient: server.Client(), baseURL: server.URL}
+	client := &GraphClient{tokens: tokenRepoWith("t"), httpClient: server.Client(), baseURL: server.URL}
 	comments, err := client.FetchComments(context.Background(), "media-123")
 	if err != nil {
 		t.Fatalf("FetchComments() error = %v", err)
@@ -85,7 +110,7 @@ func TestGraphClient_FetchComments_GraphAPIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &GraphClient{accessToken: "expired", httpClient: server.Client(), baseURL: server.URL}
+	client := &GraphClient{tokens: tokenRepoWith("expired"), httpClient: server.Client(), baseURL: server.URL}
 	_, err := client.FetchComments(context.Background(), "media-123")
 	if err == nil {
 		t.Fatal("FetchComments() error = nil, quiero un error")
@@ -102,12 +127,20 @@ func TestGraphClient_FetchComments_NonJSONErrorBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &GraphClient{accessToken: "t", httpClient: server.Client(), baseURL: server.URL}
+	client := &GraphClient{tokens: tokenRepoWith("t"), httpClient: server.Client(), baseURL: server.URL}
 	_, err := client.FetchComments(context.Background(), "media-123")
 	if err == nil {
 		t.Fatal("FetchComments() error = nil, quiero un error")
 	}
 	if !strings.Contains(err.Error(), "503") {
 		t.Errorf("err = %q, debería caer al código de estado cuando el body no es el shape esperado", err.Error())
+	}
+}
+
+func TestGraphClient_FetchComments_NoTokenAvailable(t *testing.T) {
+	client := &GraphClient{tokens: &fakeTokenRepo{}, httpClient: http.DefaultClient, baseURL: "http://unused"}
+	_, err := client.FetchComments(context.Background(), "media-123")
+	if err == nil {
+		t.Fatal("FetchComments() error = nil, quiero un error (no hay token cargado)")
 	}
 }
