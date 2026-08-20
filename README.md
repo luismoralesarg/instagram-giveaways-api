@@ -5,3 +5,4 @@ API en Go para gestionar sorteos de Instagram (campañas, captura automática de
 - Diseño y arquitectura: ver [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 - Contexto para Claude Code: ver [`CLAUDE.md`](./CLAUDE.md)
 - Casos de uso: ver [`docs/USE_CASES.md`](./docs/USE_CASES.md)
+- Variables de entorno, secrets y guía de uso: ver [`docs/RUNBOOK.md`](./docs/RUNBOOK.md)
